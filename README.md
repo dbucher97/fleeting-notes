@@ -35,3 +35,7 @@ better thought of after writing the note. You can rename the file, but just
 giving it a `h1` title should be sufficient. Also make sure to pack your title
 to be able to identify the note later.
 
+### License
+
+GPLv3
+
