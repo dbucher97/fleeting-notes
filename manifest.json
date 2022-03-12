@@ -1,7 +1,7 @@
 {
 	"id": "obsidian-fleeting-notes",
 	"name": "Fleeting Notes",
-	"version": "0.1",
+	"version": "0.1.1",
 	"minAppVersion": "0.12.0",
 	"description": "Plugin for managing fleeting notes",
 	"author": "David Bucher",
