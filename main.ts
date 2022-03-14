@@ -12,14 +12,22 @@ const DEFAULT_SETTINGS: FleetingNotesSettings = {
     maxDays: 30,
 }
 
+interface CmdType {
+  title: string;
+  cmd: () => void;
+}
+
 export default class FleetingNotes extends Plugin {
     settings: FleetingNotesSettings;
 
     async onload() {
         await this.loadSettings();
 
-        const ribbonIconEl = this.addRibbonIcon('paper-plane', 'New Fleeting Note', (evt: MouseEvent) => {
-            this.createNewFleeting();
+        const ribbonIconEl = this.addRibbonIcon('paper-plane', 'Fleeting Notes', () => {
+            new FleetingModal(this, [
+              {title: "New Fleeting Note", cmd: () => {this.createNewFleeting(); }},
+              {title: "Clean Fleeting Notes", cmd: () => {this.cleanFleetings(); }},
+            ]).open();
         });
         ribbonIconEl.addClass('fleeting-note-ribbon-class');
 
@@ -35,7 +43,7 @@ export default class FleetingNotes extends Plugin {
             id: 'list-fleeting-notes',
             name: 'List fleeting notes',
             callback: () => {
-                new FleetingModal(this.app, this.settings.path).open();
+                new FleetingModal(this).open();
             }
         });
 
@@ -73,11 +81,26 @@ export default class FleetingNotes extends Plugin {
             while (await this.app.vault.adapter.exists(fileName)) {
                 name = this.newID();
             }
-            const file = await this.app.vault.create(fileName, "# Fleeting");
+            const file = await this.app.vault.create(fileName, "# Untitled");
             this.app.workspace.activeLeaf.openFile(file);
         } catch (error) {
             new Notice(error.toString());
         }
+    }
+
+    getFleetingNotes(): TFile[] {
+      const folder = this.app.vault.getAbstractFileByPath(this.settings.path) as TFolder;
+      let fleets = folder.children.filter(afile => afile instanceof TFile) as TFile[];
+      fleets = fleets.filter(file => {
+          const cache = this.app.metadataCache.getFileCache(file);
+          if(cache && 'tags' in cache) {
+              return !cache.tags.map(({tag}) => tag).contains('#processed');
+          } else {
+              return true;
+          }
+      });
+      fleets.sort(file => file.stat.mtime);
+      return fleets;
     }
 
     cleanFleetings(): void {
@@ -93,17 +116,23 @@ export default class FleetingNotes extends Plugin {
                 return true;
             }
             const cache = this.app.metadataCache.getFileCache(tfile);
-            if (cache && 'tags' in cache) {
+            if (!cache) return false;
+            if ('tags' in cache) {
                 return cache.tags.map(({tag}) => tag).contains("#processed");
             }
-            return false;
+            console.log(file)
+            console.log(cache)
+            if ('headings' in cache) {
+              return cache.headings[0].heading === "Untitled";
+            }
+            return true;
         });
         if(todelete.length == 0) return;
         new ConfirmModal(this.app, () => {
             todelete.forEach(element => {
                 this.app.vault.delete(element, true);
             });
-        },todelete.length).open();
+        }, todelete.length).open();
     }
 }
 
@@ -133,50 +162,49 @@ class ConfirmModal extends Modal {
     }
 }
 
-class FleetingModal extends FuzzySuggestModal<TFile> {
-    fleets: TFile[];
-    path: string;
+class FleetingModal extends FuzzySuggestModal<TFile|CmdType> {
+    fleets: (TFile|CmdType)[];
+    plugin: FleetingNotes;
 
-    constructor(app: App, path: string) {
-        super(app);
-        this.path = path;
+    constructor(plugin: FleetingNotes, commands: CmdType[] = []) {
+        super(plugin.app);
+        this.plugin = plugin;
+        this.fleets = commands;
         this.init();
     }
 
     init() {
         try {
-            const folder = this.app.vault.getAbstractFileByPath(this.path) as TFolder;
-            this.fleets = folder.children.filter(afile => afile instanceof TFile) as TFile[];
-            this.fleets = this.fleets.filter(file => {
-                const cache = this.app.metadataCache.getFileCache(file);
-                if(cache && 'tags' in cache) {
-                    return !cache.tags.map(({tag}) => tag).contains('#processed');
-                } else {
-                    return true;
-                }
-            });
-            this.fleets.sort(file => file.stat.mtime);
+          this.fleets.push(...this.plugin.getFleetingNotes());
         } catch (error) {
             new Notice(error.toString());
         }
     }
 
-    getItems(): TFile[] {
+    getItems(): (TFile|CmdType)[] {
         return this.fleets;
     }
 
-    getItemText(item: TFile): string {
+  getItemText(item: TFile|CmdType): string {
+      if(item instanceof TFile) {
         const cache  = this.app.metadataCache.getFileCache(item);
         if(cache && 'headings' in cache) {
-            try {
-                return cache.headings.filter(({level}) => level == 1)[0].heading;
-            } catch (_) { }
+          try {
+              return cache.headings.filter(({level}) => level == 1)[0].heading;
+          } catch (_) { }
         }
         return item.name;
+      } else {
+        return "👾 " + item.title;
+      }
     }
 
-    onChooseItem(item: TFile): void {
+    onChooseItem(item: TFile|CmdType): void {
+      if(item instanceof TFile) {
         this.app.workspace.activeLeaf.openFile(item);
+      } else {
+        item.cmd();
+      }
     }
 
 }
